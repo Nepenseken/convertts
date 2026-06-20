@@ -166,19 +166,11 @@ jobs:
         with:
           path: ${{ github.workspace }}/staging/default_assets.zip
           key: ${{ runner.os }}-${{ needs.get-pack-info.outputs.default_assets_version }}
-      - name: Install NodeJS
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
       - name: Install dependencies
         run: |
           sudo apt-get update || sudo apt-get update --fix-missing
           sudo apt-get install -y moreutils zip imagemagick
-          yarn global add spritesheet-js
+          npm install -g spritesheet-js
           pip install Pillow requests pyyaml
       - name: Convert Pack
         id: convert-pack
@@ -224,6 +216,7 @@ jobs:
   post-result:
     runs-on: ubuntu-latest
     needs: convert-pack
+    if: github.event_name == 'issues'
     timeout-minutes: 2
     permissions:
       issues: write
@@ -251,7 +244,7 @@ jobs:
   conversion-failed:
     runs-on: ubuntu-latest
     needs: [get-pack-info, convert-pack, post-result]
-    if: always() && (needs.get-pack-info.result == 'failure' || needs.convert-pack.result == 'failure' || needs.convert-pack.result == 'post-result')
+    if: github.event_name == 'issues' && always() && (needs.get-pack-info.result == 'failure' || needs.convert-pack.result == 'failure' || needs.post-result.result == 'failure')
     timeout-minutes: 2
     permissions:
       issues: write
