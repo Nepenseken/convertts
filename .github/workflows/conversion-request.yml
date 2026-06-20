@@ -3,11 +3,66 @@ on:
   issues:
     types:
       - labeled
+  workflow_dispatch:
+    inputs:
+      pack_url:
+        description: 'Java Pack Direct Download URL'
+        required: true
+      default_pack_url:
+        description: 'Default Pack URL (optional)'
+        required: false
+      merge_pack_url:
+        description: 'Bedrock Merge Pack URL (optional)'
+        required: false
+      default_assets_version:
+        description: 'Default Assets Version'
+        default: '1.19.3'
+        required: false
+      block_material:
+        description: 'Block Material'
+        default: 'alpha_test'
+        required: false
+      attachable_material:
+        description: 'Attachable Material'
+        default: 'entity_alphatest_one_sided'
+        required: false
+      rename_model_files:
+        description: 'Rename Model Files'
+        default: 'false'
+        required: false
+      font_conversion:
+        description: 'Font Conversion'
+        default: 'false'
+        required: false
+      armor_conversion:
+        description: 'Armor Conversion'
+        default: 'false'
+        required: false
+      meg3_fix:
+        description: 'MEG3 Fix'
+        default: 'false'
+        required: false
+      sounds_conversion:
+        description: 'Sounds Conversion'
+        default: 'false'
+        required: false
+      bow_conversion:
+        description: 'Bow Conversion'
+        default: 'false'
+        required: false
+      shield_conversion:
+        description: 'Shield Conversion'
+        default: 'false'
+        required: false
+      block_conversion:
+        description: 'Block Conversion'
+        default: 'false'
+        required: false
 
 jobs:
   get-pack-info:
     runs-on: ubuntu-latest
-    if: github.event.label.name == 'conversion'
+    if: github.event.label.name == 'conversion' || github.event_name == 'workflow_dispatch'
     permissions:
       issues: read
     timeout-minutes: 2
@@ -30,30 +85,53 @@ jobs:
     steps:
       - name: Issue Forms Body Parser
         id: parse-issue
+        if: github.event_name == 'issues'
         uses: zentered/issue-forms-body-parser@v2.2.0
       - name: Organize Inputs
         id: organize-inputs
         run: |
-          echo ${{ toJSON(steps.parse-issue.outputs.data) }} | jq '
-          def test_input($input; $default):
-          if ($input == "*No response*" or $input == "None") then $default else ($input | tostring | gsub("\\\\";""))  end;
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            cat <<'EOF' > inputs.json
           {
-            "pack_url": .["java-pack-direct-download-url"].text[1:-1],
-            "default_pack_url": test_input(.["default-pack-direct-download-url"].text; " null ")[1:-1],
-            "merge_pack_url": test_input(.["bedrock-merge-pack-direct-download-url"].text; " null ")[1:-1],
-            "default_assets_version": test_input(.["default-assets-version"].text; "1.19.3"),
-            "block_material": test_input(.["block-material"].text; "alpha_test"),
-            "attachable_material": test_input(.["attachable-material"].text; "entity_alphatest_one_sided"),
-            "archive_scratch": test_input(.["archive-scratch-files"].text; "false"),
-            "rename_model_files": test_input(.["rename-model-files"].text; "false"),
-            "font_conversion": test_input(.["font-conversion"].text; "false"),
-            "armor_conversion": test_input(.["armor-conversion"].text; "false"),
-            "meg3_fix": test_input(.["meg3-fix"].text; "false"),
-            "sounds_conversion": test_input(.["sounds-conversion"].text; "false"),
-            "bow_conversion": test_input(.["bow-conversion"].text; "false"),
-            "shield_conversion": test_input(.["shield-conversion"].text; "false"),
-            "block_conversion": test_input(.["block-conversion"].text; "false")
-          }' > inputs.json
+            "pack_url": "${{ github.event.inputs.pack_url }}",
+            "default_pack_url": "${{ github.event.inputs.default_pack_url }}",
+            "merge_pack_url": "${{ github.event.inputs.merge_pack_url }}",
+            "default_assets_version": "${{ github.event.inputs.default_assets_version }}",
+            "block_material": "${{ github.event.inputs.block_material }}",
+            "attachable_material": "${{ github.event.inputs.attachable_material }}",
+            "archive_scratch": "false",
+            "rename_model_files": "${{ github.event.inputs.rename_model_files }}",
+            "font_conversion": "${{ github.event.inputs.font_conversion }}",
+            "armor_conversion": "${{ github.event.inputs.armor_conversion }}",
+            "meg3_fix": "${{ github.event.inputs.meg3_fix }}",
+            "sounds_conversion": "${{ github.event.inputs.sounds_conversion }}",
+            "bow_conversion": "${{ github.event.inputs.bow_conversion }}",
+            "shield_conversion": "${{ github.event.inputs.shield_conversion }}",
+            "block_conversion": "${{ github.event.inputs.block_conversion }}"
+          }
+          EOF
+          else
+            echo ${{ toJSON(steps.parse-issue.outputs.data) }} | jq '
+            def test_input($input; $default):
+            if ($input == "*No response*" or $input == "None") then $default else ($input | tostring | gsub("\\\\";""))  end;
+            {
+              "pack_url": .["java-pack-direct-download-url"].text[1:-1],
+              "default_pack_url": test_input(.["default-pack-direct-download-url"].text; " null ")[1:-1],
+              "merge_pack_url": test_input(.["bedrock-merge-pack-direct-download-url"].text; " null ")[1:-1],
+              "default_assets_version": test_input(.["default-assets-version"].text; "1.19.3"),
+              "block_material": test_input(.["block-material"].text; "alpha_test"),
+              "attachable_material": test_input(.["attachable-material"].text; "entity_alphatest_one_sided"),
+              "archive_scratch": test_input(.["archive-scratch-files"].text; "false"),
+              "rename_model_files": test_input(.["rename-model-files"].text; "false"),
+              "font_conversion": test_input(.["font-conversion"].text; "false"),
+              "armor_conversion": test_input(.["armor-conversion"].text; "false"),
+              "meg3_fix": test_input(.["meg3-fix"].text; "false"),
+              "sounds_conversion": test_input(.["sounds-conversion"].text; "false"),
+              "bow_conversion": test_input(.["bow-conversion"].text; "false"),
+              "shield_conversion": test_input(.["shield-conversion"].text; "false"),
+              "block_conversion": test_input(.["block-conversion"].text; "false")
+            }' > inputs.json
+          fi
           echo "PACK_URL=$(jq -r '.pack_url' inputs.json)" >> $GITHUB_OUTPUT
           echo "DEFAULT_PACK_URL=$(jq -r '.default_pack_url' inputs.json)" >> $GITHUB_OUTPUT
           echo "MERGE_PACK_URL=$(jq -r '.merge_pack_url' inputs.json)" >> $GITHUB_OUTPUT
@@ -86,7 +164,7 @@ jobs:
         id: cache-default-assets
         uses: actions/cache@v4
         with:
-          path: /home/runner/work/java2bedrock.sh/java2bedrock.sh/staging/default_assets.zip
+          path: ${{ github.workspace }}/staging/default_assets.zip
           key: ${{ runner.os }}-${{ needs.get-pack-info.outputs.default_assets_version }}
       - name: Install NodeJS
         uses: actions/setup-node@v4
