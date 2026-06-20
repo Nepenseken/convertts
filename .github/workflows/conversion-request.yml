@@ -91,25 +91,38 @@ jobs:
         id: organize-inputs
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            cat <<'EOF' > inputs.json
-          {
-            "pack_url": "${{ github.event.inputs.pack_url }}",
-            "default_pack_url": "${{ github.event.inputs.default_pack_url }}",
-            "merge_pack_url": "${{ github.event.inputs.merge_pack_url }}",
-            "default_assets_version": "${{ github.event.inputs.default_assets_version }}",
-            "block_material": "${{ github.event.inputs.block_material }}",
-            "attachable_material": "${{ github.event.inputs.attachable_material }}",
-            "archive_scratch": "false",
-            "rename_model_files": "${{ github.event.inputs.rename_model_files }}",
-            "font_conversion": "${{ github.event.inputs.font_conversion }}",
-            "armor_conversion": "${{ github.event.inputs.armor_conversion }}",
-            "meg3_fix": "${{ github.event.inputs.meg3_fix }}",
-            "sounds_conversion": "${{ github.event.inputs.sounds_conversion }}",
-            "bow_conversion": "${{ github.event.inputs.bow_conversion }}",
-            "shield_conversion": "${{ github.event.inputs.shield_conversion }}",
-            "block_conversion": "${{ github.event.inputs.block_conversion }}"
-          }
-          EOF
+            jq -n \
+              --arg pk "${{ github.event.inputs.pack_url }}" \
+              --arg def "${{ github.event.inputs.default_pack_url }}" \
+              --arg mg "${{ github.event.inputs.merge_pack_url }}" \
+              --arg dav "${{ github.event.inputs.default_assets_version }}" \
+              --arg bm "${{ github.event.inputs.block_material }}" \
+              --arg am "${{ github.event.inputs.attachable_material }}" \
+              --arg rn "${{ github.event.inputs.rename_model_files }}" \
+              --arg font "${{ github.event.inputs.font_conversion }}" \
+              --arg arm "${{ github.event.inputs.armor_conversion }}" \
+              --arg meg "${{ github.event.inputs.meg3_fix }}" \
+              --arg snd "${{ github.event.inputs.sounds_conversion }}" \
+              --arg bow "${{ github.event.inputs.bow_conversion }}" \
+              --arg shld "${{ github.event.inputs.shield_conversion }}" \
+              --arg blk "${{ github.event.inputs.block_conversion }}" \
+              '{
+                "pack_url": $pk,
+                "default_pack_url": (if $def == "" then "null" else $def end),
+                "merge_pack_url": (if $mg == "" then "null" else $mg end),
+                "default_assets_version": (if $dav == "" then "1.19.3" else $dav end),
+                "block_material": (if $bm == "" then "alpha_test" else $bm end),
+                "attachable_material": (if $am == "" then "entity_alphatest_one_sided" else $am end),
+                "archive_scratch": "false",
+                "rename_model_files": (if $rn == "" then "false" else $rn end),
+                "font_conversion": (if $font == "" then "false" else $font end),
+                "armor_conversion": (if $arm == "" then "false" else $arm end),
+                "meg3_fix": (if $meg == "" then "false" else $meg end),
+                "sounds_conversion": (if $snd == "" then "false" else $snd end),
+                "bow_conversion": (if $bow == "" then "false" else $bow end),
+                "shield_conversion": (if $shld == "" then "false" else $shld end),
+                "block_conversion": (if $blk == "" then "false" else $blk end)
+              }' > inputs.json
           else
             echo ${{ toJSON(steps.parse-issue.outputs.data) }} | jq '
             def test_input($input; $default):
