@@ -205,17 +205,18 @@ def main():
                 if not layer_path:
                     continue
 
-                # Find the armor layer PNG in the Java pack
-                # Try old format path first: assets/{ns}/textures/{layer_path}.png
-                layer_png = Path(pack_dir) / "assets" / namespace / "textures" / f"{layer_path}.png"
-                found_png = layer_png if layer_png.exists() else None
-
-                if not found_png:
-                    # Try modern ItemsAdder overlay format (1.21.2+)
-                    # Textures are in ia_overlay_*/assets/{ns}/textures/entity/equipment/humanoid/
-                    # Named by equipment ID, not by layer_path
+                # Find the armor layer PNG in the Java pack with fallback dirs
+                texture_dirs = [Path(pack_dir), Path("./pack"), Path("pack")]
+                found_png = None
+                for tex_base in texture_dirs:
+                    # Try old format: assets/{ns}/textures/{layer_path}.png
+                    p = tex_base / "assets" / namespace / "textures" / f"{layer_path}.png"
+                    if p.exists():
+                        found_png = p
+                        break
+                    # Try overlay format: ia_overlay_*/assets/{ns}/textures/entity/equipment/humanoid/
                     layer_sub = "humanoid_leggings" if layer_key == "layer_2" else "humanoid"
-                    for overlay_dir in sorted(Path(pack_dir).glob("ia_overlay_*/")):
+                    for overlay_dir in sorted(tex_base.glob("ia_overlay_*/")):
                         # Try equipment ID name first
                         p = overlay_dir / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
                         if p.exists():
@@ -232,6 +233,8 @@ def main():
                         if p.exists():
                             found_png = p
                             break
+                    if found_png:
+                        break
 
                 if not found_png:
                     print(f"  [SKIP] {item_name}: layer PNG not found for eq={eq_id} ({layer_path})")
@@ -245,21 +248,29 @@ def main():
                     shutil.copy2(found_png, layer_dest)
 
                 # Find existing attachable for this item
-                # Try nested format: attachables/{namespace}/{model_path}/*.json
-                attachable_pattern = f"{staging_dir}/target/rp/attachables/{namespace}/{model_path}/*.json"
-                afiles = glob.glob(attachable_pattern)
-                afile = next((f for f in afiles if not f.endswith(".player.json")), None)
-                if not afile:
-                    # Try nested format (model_path as prefix): attachables/{namespace}/{model_path}*.json
-                    attachable_pattern2 = f"{staging_dir}/target/rp/attachables/{namespace}/{model_path}*.json"
-                    afiles = glob.glob(attachable_pattern2)
+                item_filename = Path(model_path).name
+                attachable_dirs = [
+                    f"{staging_dir}/target/rp/attachables",
+                    "./target/rp/attachables",
+                    "target/rp/attachables",
+                ]
+                afile = None
+                for base_dir in attachable_dirs:
+                    # Try nested format: {base_dir}/{namespace}/{model_path}/*.json
+                    p = f"{base_dir}/{namespace}/{model_path}/*.json"
+                    afiles = glob.glob(p)
                     afile = next((f for f in afiles if not f.endswith(".player.json")), None)
-                if not afile:
-                    # Try flat format (after consolidate_files): attachables/{model_name}*.json
-                    item_filename = Path(model_path).name
-                    flat_pattern = f"{staging_dir}/target/rp/attachables/{item_filename}*.json"
-                    afiles = glob.glob(flat_pattern)
+                    if afile: break
+                    # Try flat format: {base_dir}/{item_filename}*.json
+                    p = f"{base_dir}/{item_filename}*.json"
+                    afiles = glob.glob(p)
                     afile = next((f for f in afiles if not f.endswith(".player.json")), None)
+                    if afile: break
+                    # Try old hybrid: {base_dir}/{namespace}/{model_path}*.json
+                    p = f"{base_dir}/{namespace}/{model_path}*.json"
+                    afiles = glob.glob(p)
+                    afile = next((f for f in afiles if not f.endswith(".player.json")), None)
+                    if afile: break
                 if not afile:
                     print(f"  [SKIP] {item_name}: no attachable found")
                     total_errors += 1
