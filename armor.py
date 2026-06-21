@@ -178,6 +178,13 @@ def main():
                             break
 
                 if not matched_item:
+                    # Try suffix match: cfg key ends with model name (roman_armor_* items)
+                    for cfg_name, cfg_item in items.items():
+                        if cfg_name.endswith(item_name):
+                            matched_item = cfg_item
+                            break
+
+                if not matched_item:
                     continue
 
                 eq_id = matched_item["equipment_id"]
@@ -192,17 +199,43 @@ def main():
                     continue
 
                 # Find the armor layer PNG in the Java pack
+                # Try old format path first: assets/{ns}/textures/{layer_path}.png
                 layer_png = Path(pack_dir) / "assets" / namespace / "textures" / f"{layer_path}.png"
-                if not layer_png.exists():
-                    print(f"  [SKIP] {item_name}: layer PNG not found at {layer_png}")
+                found_png = layer_png if layer_png.exists() else None
+
+                if not found_png:
+                    # Try modern ItemsAdder overlay format (1.21.2+)
+                    # Textures are in ia_overlay_*/assets/{ns}/textures/entity/equipment/humanoid/
+                    # Named by equipment ID, not by layer_path
+                    layer_sub = "humanoid_leggings" if layer_key == "layer_2" else "humanoid"
+                    for overlay_dir in sorted(Path(pack_dir).glob("ia_overlay_*/")):
+                        # Try equipment ID name first
+                        p = overlay_dir / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
+                        if p.exists():
+                            found_png = p
+                            break
+                        # Try basename of layer_path
+                        layer_base = Path(layer_path).name
+                        p = overlay_dir / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{layer_base}.png"
+                        if p.exists():
+                            found_png = p
+                            break
+                        # Try old path inside overlay
+                        p = overlay_dir / "assets" / namespace / "textures" / f"{layer_path}.png"
+                        if p.exists():
+                            found_png = p
+                            break
+
+                if not found_png:
+                    print(f"  [SKIP] {item_name}: layer PNG not found for eq={eq_id} ({layer_path})")
                     total_errors += 1
                     continue
 
                 # Copy to armor_layer directory
-                layer_name = f"{namespace}_{layer_path.replace('/', '_')}"
+                layer_name = f"{namespace}_{eq_id}"
                 layer_dest = armor_layer_dir / f"{layer_name}.png"
                 if not layer_dest.exists():
-                    shutil.copy2(layer_png, layer_dest)
+                    shutil.copy2(found_png, layer_dest)
 
                 # Find existing attachable for this item
                 attachable_pattern = f"{staging_dir}/target/rp/attachables/{namespace}/{model_path}*.json"
