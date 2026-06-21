@@ -27,6 +27,12 @@ SLOT_GEOMETRY = {
     3: "geometry.player.armor.boots",
 }
 SLOT_NAMES = ["helmet", "chestplate", "leggings", "boots"]
+SLOT_VISIBLE_VARIABLE = {
+    0: "variable.helmet_layer_visible = 0.0;",
+    1: "variable.chest_layer_visible = 0.0;",
+    2: "variable.leg_layer_visible = 0.0;",
+    3: "variable.feet_layer_visible = 0.0;",
+}
 
 
 def load_armor_configs(contents_dir: str) -> dict:
@@ -83,6 +89,7 @@ def load_armor_configs(contents_dir: str) -> dict:
 def write_player_attachable(file_path: str, gmdl: str, layer_name: str, slot_index: int):
     """Write a .player attachable JSON for armor rendering on the player model."""
     geometry = SLOT_GEOMETRY.get(slot_index, "geometry.player.armor.helmet")
+    parent_script = SLOT_VISIBLE_VARIABLE.get(slot_index, "variable.helmet_layer_visible = 0.0;")
     ajson = {
         "format_version": "1.10.0",
         "minecraft:attachable": {
@@ -98,7 +105,7 @@ def write_player_attachable(file_path: str, gmdl: str, layer_name: str, slot_ind
                     "enchanted": "textures/misc/enchanted_item_glint",
                 },
                 "geometry": {"default": geometry},
-                "scripts": {"parent_setup": "variable.helmet_layer_visible = 0.0;"},
+                "scripts": {"parent_setup": parent_script},
                 "render_controllers": ["controller.render.armor"],
             }
         },
