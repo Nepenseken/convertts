@@ -138,7 +138,8 @@ def generate_gmdl(model_ref: str) -> str:
 
 def find_armor_texture(pack_dir: str, namespace: str, eq_id: str, layer_path: str, layer_key: str) -> (Path | None):
     """Find the armor layer PNG in the Java pack, searching overlay dirs with fallbacks."""
-    texture_dirs = [Path(pack_dir)]
+    # Search pack_dir AND root — converter.sh extracts to root, not pack/
+    texture_dirs = [Path(pack_dir), Path(".")]
     for tex_base in texture_dirs:
         # Try old format: assets/{ns}/textures/{layer_path}.png
         p = tex_base / "assets" / namespace / "textures" / f"{layer_path}.png"
@@ -244,18 +245,20 @@ def generate_item_attachable(afile_path: str, gmdl: str, namespace: str,
 def copy_item_texture(pack_dir: str, staging_dir: str, namespace: str,
                        model_path: str) -> bool:
     """Copy item icon PNG from Java pack to target RP textures (converter.sh style path)."""
-    # The item model's texture might be at various locations; try the model_path first
     model_name = Path(model_path).name
-    candidates = [
-        # Same path as model: textures/{namespace}/{model_path}.png
-        Path(pack_dir) / "assets" / namespace / "textures" / f"{model_path}.png",
-        # Common ItemsAdder pattern: textures/{namespace}/item/{model_path}.png
-        Path(pack_dir) / "assets" / namespace / "textures" / "item" / f"{model_path}.png",
-    ]
+    # Search in pack_dir AND root (converter.sh extracts to root)
+    search_dirs = [Path(pack_dir), Path(".")]
     src = None
-    for c in candidates:
-        if c.exists():
-            src = c
+    for base in search_dirs:
+        candidates = [
+            base / "assets" / namespace / "textures" / f"{model_path}.png",
+            base / "assets" / namespace / "textures" / "item" / f"{model_path}.png",
+        ]
+        for c in candidates:
+            if c.exists():
+                src = c
+                break
+        if src:
             break
     if not src:
         return False
