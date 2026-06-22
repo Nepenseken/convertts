@@ -138,29 +138,31 @@ def generate_gmdl(model_ref: str) -> str:
 
 def find_armor_texture(pack_dir: str, namespace: str, eq_id: str, layer_path: str, layer_key: str) -> (Path | None):
     """Find the armor layer PNG in the Java pack, searching overlay dirs with fallbacks."""
-    # Search pack_dir AND root — converter.sh extracts to root, not pack/
-    texture_dirs = [Path(pack_dir), Path(".")]
-    for tex_base in texture_dirs:
-        # Try old format: assets/{ns}/textures/{layer_path}.png
-        p = tex_base / "assets" / namespace / "textures" / f"{layer_path}.png"
+    layer_sub = "humanoid_leggings" if layer_key == "layer_2" else "humanoid"
+    
+    # Build a set of unique base dirs to search:
+    # pack/, root (.), and all ia_overlay_* dirs directly
+    search_bases = set()
+    for base in [Path(pack_dir), Path(".")]:
+        search_bases.add(base)
+        for od in sorted(base.glob("ia_overlay_*/")):
+            search_bases.add(od)
+    
+    for base in search_bases:
+        # Try overlay texture path (modern ItemsAdder): assets/{ns}/textures/entity/equipment/{layer_sub}/{eq_id}.png
+        p = base / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
         if p.exists():
             return p
-        # Try overlay format: ia_overlay_*/assets/{ns}/textures/entity/equipment/humanoid/
-        layer_sub = "humanoid_leggings" if layer_key == "layer_2" else "humanoid"
-        for overlay_dir in sorted(tex_base.glob("ia_overlay_*/")):
-            # Try equipment ID name first (most common in modern ItemsAdder)
-            p = overlay_dir / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
-            if p.exists():
-                return p
-            # Try basename of layer_path
-            layer_base = Path(layer_path).name
-            p = overlay_dir / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{layer_base}.png"
-            if p.exists():
-                return p
-            # Try old path inside overlay
-            p = overlay_dir / "assets" / namespace / "textures" / f"{layer_path}.png"
-            if p.exists():
-                return p
+        # Try overlay with layer_path basename instead of eq_id
+        layer_base = Path(layer_path).name
+        p = base / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{layer_base}.png"
+        if p.exists():
+            return p
+        # Try old format: assets/{ns}/textures/{layer_path}.png
+        p = base / "assets" / namespace / "textures" / f"{layer_path}.png"
+        if p.exists():
+            return p
+    return None
     return None
 
 
@@ -271,6 +273,130 @@ def copy_item_texture(pack_dir: str, staging_dir: str, namespace: str,
     return True
 
 
+def load_overlay_equipment(pack_dir: str) -> dict:
+    """Load equipment definitions from ia_overlay_* dirs (modern ItemsAdder format).
+    
+    Returns {eq_id: texture_name} e.g. {"roman_armor_legionnaire_red": "roman_armor_legionnaire_red"}
+    """
+    equipment_map = {}
+    search_bases = [Path(pack_dir), Path(".")]
+    
+    for base in search_bases:
+        for overlay_dir in sorted(base.glob("ia_overlay_*/")):
+            assets_dir = overlay_dir / "assets"
+            if not assets_dir.exists():
+                continue
+            for ns_dir in sorted(assets_dir.iterdir()):
+                if not ns_dir.is_dir():
+                    continue
+                # Two possible equipment dir locations:
+                # 1) assets/{ns}/models/equipment/{eq_id}.json (1.21.2 format)
+                # 2) assets/{ns}/equipment/{eq_id}.json (1.21.4+ format)
+                for eq_dir in [ns_dir / "models" / "equipment", ns_dir / "equipment"]:
+                    if not eq_dir.exists():
+                        continue
+                    for eq_file in sorted(eq_dir.glob("*.json")):
+                        try:
+                            with open(eq_file) as f:
+                                data = json.load(f)
+                            eq_id = eq_file.stem
+                            layers = data.get("layers", {})
+                            humanoid = layers.get("humanoid", [{}])[0].get("texture", "")
+                            if ":" in humanoid:
+                                humanoid = humanoid.split(":")[1]
+                            if humanoid:
+                                equipment_map[eq_id] = humanoid
+                        except:
+                            pass
+    return equipment_map
+
+
+def scan_armor_models(pack_dir: str, overlay_eq: dict = None) -> list:
+    """Scan auto_generated model dirs for potential armor items (by naming convention).
+    
+    overlay_eq: dict of eq_id → texture_name from overlay equipment JSONs
+    Uses overlay_eq to match model names to equipment IDs.
+    
+    Returns list of (namespace, model_path, item_name, slot_idx, eq_id)
+    """
+    SLOT_KEYWORDS = [
+        ("_helmet", 0), ("_chestplate", 1), ("_leggings", 2), ("_boots", 3),
+    ]
+    items = []
+    search_bases = [Path(pack_dir), Path(".")]
+    seen = set()
+    
+    # Pre-compute: for each eq_id, extract shorter keys for matching
+    # e.g. "roman_armor_veles_darkpurple" → "veles_darkpurple"
+    eq_lookup = {}
+    if overlay_eq:
+        for eq_id in overlay_eq:
+            # Try to find a meaningful "short name" — the part after all known prefixes
+            # ItemsAdder prefix example: "roman_armor_", "medieval_armor_set_", etc.
+            # Strip common prefixes to get the core name
+            short = eq_id
+            for prefix in ["roman_armor_", "medieval_armor_set_", "demonking_assortment_",
+                           "ecbluemech", "eclavabeast", "eclightknight", "ecruby",
+                           "witchcaster_"]:
+                if short.startswith(prefix):
+                    short = short[len(prefix):]
+                    break
+            eq_lookup[short] = eq_id
+            eq_lookup[eq_id] = eq_id  # Also store full ID
+    
+    for base in search_bases:
+        assets_dir = base / "assets"
+        if not assets_dir.exists():
+            continue
+        for ns_dir in sorted(assets_dir.iterdir()):
+            if not ns_dir.is_dir():
+                continue
+            namespace = ns_dir.name
+            if namespace in ("minecraft", "_iainternal"):
+                continue
+            # Scan auto_generated/ model dirs
+            for models_root in [ns_dir / "models" / "auto_generated", ns_dir / "models"]:
+                if not models_root.exists():
+                    continue
+                for model_file in sorted(models_root.glob("*.json")):
+                    model_name = model_file.stem
+                    # Check slot keywords
+                    for kw, slot_idx in SLOT_KEYWORDS:
+                        if kw in model_name:
+                            # Strip slot keyword to get base name
+                            base_name = model_name.replace(kw, "", 1)
+                            
+                            # Try to find matching eq_id
+                            eq_id = ""
+                            if overlay_eq:
+                                # Try direct lookup
+                                if base_name in eq_lookup:
+                                    eq_id = eq_lookup[base_name]
+                                else:
+                                    # Fuzzy: find eq_id that ends with base_name
+                                    for short, full in eq_lookup.items():
+                                        if full.endswith(base_name) or base_name.endswith(short):
+                                            eq_id = full
+                                            break
+                            
+                            if not eq_id:
+                                eq_id = base_name  # fallback: use base_name as eq_id
+                            
+                            # Derive model_path
+                            if "auto_generated" in str(model_file):
+                                model_path = f"auto_generated/{model_name}"
+                            else:
+                                model_path_rel = model_file.relative_to(models_root.parent.parent)
+                                model_path = str(model_path_rel.with_suffix("")).replace("\\", "/")
+                            
+                            dedup = (namespace, model_name, slot_idx)
+                            if dedup not in seen:
+                                seen.add(dedup)
+                                items.append((namespace, model_path, model_name, slot_idx, eq_id))
+                            break  # found slot, stop checking other slots
+    return items
+
+
 def process_armor_item(namespace: str, model_path: str, item_name: str, eq_id: str, eq_data: dict,
                        slot_idx: int, pack_dir: str, staging_dir: str, armor_layer_dir: Path,
                        processed: set) -> bool:
@@ -286,14 +412,33 @@ def process_armor_item(namespace: str, model_path: str, item_name: str, eq_id: s
 
     # Determine which layer to use
     layer_key = "layer_2" if slot_idx == 2 else "layer_1"
-    layer_path = eq_data.get(layer_key, "")
-    if not layer_path:
-        return False
+    layer_path = eq_data.get(layer_key, "") if eq_data else ""
 
     # Find the armor layer PNG
-    found_png = find_armor_texture(pack_dir, namespace, eq_id, layer_path, layer_key)
+    found_png = None
+    if layer_path:
+        # Search using layer_path from YAML config
+        found_png = find_armor_texture(pack_dir, namespace, eq_id, layer_path, layer_key)
+    else:
+        # No YAML config — search using eq_id directly in overlay dirs
+        layer_sub = "humanoid_leggings" if slot_idx == 2 else "humanoid"
+        for base in [Path(pack_dir), Path(".")]:
+            # Direct overlay texture path
+            p = base / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
+            if p.exists():
+                found_png = p
+                break
+            # Also check ia_overlay_* dirs
+            for od in sorted(base.glob("ia_overlay_*/")):
+                p = od / "assets" / namespace / "textures" / "entity" / "equipment" / layer_sub / f"{eq_id}.png"
+                if p.exists():
+                    found_png = p
+                    break
+            if found_png:
+                break
+    
     if not found_png:
-        print(f"  [SKIP] {item_name}: layer PNG not found for eq={eq_id} ({layer_path})")
+        print(f"  [SKIP] {item_name}: layer PNG not found for eq={eq_id}")
         return False
 
     # Copy to armor_layer directory
@@ -340,10 +485,6 @@ def main():
 
     print("[ARMOR] Loading ItemsAdder armor configs...")
     configs = load_armor_configs(contents_dir)
-
-    if not configs:
-        print("[WARN] No ItemsAdder armor configs found. Nothing to convert.")
-        return
 
     armor_layer_dir = Path(staging_dir) / "target" / "rp" / "textures" / "armor_layer"
     armor_layer_dir.mkdir(parents=True, exist_ok=True)
@@ -471,6 +612,42 @@ def main():
 
     if direct_count:
         print(f"\n[DIRECT SCAN] {direct_count} additional items processed from YAML configs")
+
+    # --- PASS 3: Process items detected from auto_generated models + overlay equipment ---
+    # This works WITHOUT contents/ YAML configs — reads item models and overlay textures directly
+    print(f"\n{'='*50}")
+    print("[OVERLAY SCAN] Scanning auto_generated models + overlay equipment...")
+    overlay_count = 0
+
+    # Load overlay equipment definitions (ia_overlay_*/equipment/ or models/equipment/)
+    overlay_eq = load_overlay_equipment(pack_dir)
+    print(f"  [INFO] Loaded {len(overlay_eq)} overlay equipment definitions")
+
+    # Scan auto_generated models for potential armor items
+    armor_candidates = scan_armor_models(pack_dir, overlay_eq)
+    print(f"  [INFO] Found {len(armor_candidates)} potential armor items by naming convention")
+
+    for namespace, model_path, item_name, slot_idx, eq_id in armor_candidates:
+        try:
+            # Skip if already processed via YAML/leather passes
+            dedup_key = (namespace, eq_id, slot_idx)
+            if dedup_key in processed:
+                continue
+
+            ok = process_armor_item(namespace, model_path, item_name, eq_id, {},
+                                    slot_idx, pack_dir, staging_dir, armor_layer_dir, processed)
+            if ok:
+                total_processed += 1
+                overlay_count += 1
+            else:
+                total_errors += 1
+
+        except Exception as e:
+            print(f"  [ERR]  {namespace}:{item_name}: {e}")
+            total_errors += 1
+
+    if overlay_count:
+        print(f"\n[OVERLAY SCAN] {overlay_count} additional items processed from overlay scan")
 
     print(f"\n{'='*50}")
     print(f"Armor conversion: {total_processed} OK, {total_errors} errors")
