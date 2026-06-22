@@ -12,4 +12,8 @@ Java2Bedrock-main/
 *.txt
 armor_output.txt
 armor_test_output.txt
-"geyser_resources.mcpack.zip"  
+geyser_resources.mcpack.zip
+PackFiles*/
+PackFiles*.zip
+target/
+target.zip

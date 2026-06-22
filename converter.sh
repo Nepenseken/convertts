@@ -268,7 +268,7 @@ else
   }
   ' | sponge ./target/rp/animations/animation.geyser_custom.disable.json
   cd -
-  python manager.py
+  ARMOR_CONVERSION=true ARMOR_CONTENTS_DIR=contents python manager.py
   cd ./staging
   # cleanup
   rm -rf assets && rm -f pack.mcmeta && rm -f pack.png
@@ -1315,7 +1315,7 @@ if [ -f sprites.json ]; then
 fi
 
 cd -
-python manager.py
+ARMOR_CONVERSION=true ARMOR_CONTENTS_DIR=contents python manager.py
 cd ./staging
 
 # cleanup
